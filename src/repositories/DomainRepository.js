@@ -42,7 +42,11 @@ class DomainRepository {
         const domains = await knex("domains").orderBy("domain_name");
 
         return domains;
-    }
+    };
+
+    async getAttachmentsByDomain(domain_id) {
+        return await knex("attachments").where({ domain_id }).select("attachment");
+    };
 }
 
 module.exports = DomainRepository;
