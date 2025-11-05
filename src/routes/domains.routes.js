@@ -16,7 +16,7 @@ domainsRoutes.put("/:domain_id", domainsController.update);
 domainsRoutes.delete("/:domain_id", domainsController.delete);
 domainsRoutes.get("/", domainsController.index);
 
-domainsRoutes.get("/export/:domain_id", domainsController.exportDatabaseAndAttachments);
+domainsRoutes.get("/export", domainsController.exportDatabaseAndAttachments);
 
 domainsRoutes.get("/:domain_id", domainsController.show);
 

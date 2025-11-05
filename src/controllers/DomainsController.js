@@ -54,16 +54,19 @@ class DomainsController {
 
     // TODO: Fragmentar para DomainsService e DomainRepository
     async exportDatabaseAndAttachments(request, response) {
-        const { domain_id } = request.params;
+        const { domain_id, type_of_publication_id } = request.body;
 
         const domainRepository = new DomainRepository();
         const domainsService = new DomainsService(domainRepository);
 
         try {
-            const zipPath = await domainsService.exportDatabaseAndAttachments(domain_id);
-            response.download(zipPath, `export_${domain_id}.zip`, (err) => {
+            const zipPath = await domainsService.exportDatabaseAndAttachments({
+                domain_id,
+                type_of_publication_id
+            });
+
+            response.download(zipPath, `export_${Date.now()}.zip`, (err) => {
                 if (err) console.error(err);
-                // Remove o arquivo ZIP após o download
                 if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
             });
         } catch (error) {
