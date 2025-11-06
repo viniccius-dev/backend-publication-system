@@ -5,6 +5,7 @@ const archiver = require("archiver");
 const knex = require("../database/knex");
 
 const PublicationRepository = require("../repositories/PublicationRepository");
+const BackupLogsRepository = require("../repositories/BackupLogsRepository");
 const PublicationsService = require("./PublicationsService");
 
 const TypesOfPublicationRepository = require("../repositories/TypesOfPublicationRepository");
@@ -77,70 +78,99 @@ class DomainsService {
 
     async exportDatabaseAndAttachments(filters) {
         const { domain_id, type_of_publication_id } = filters;
+        const backupLogsRepository = new BackupLogsRepository();
+
+        if(domain_id) {
+            const domain = await this.domainRepository.findById(domain_id);
+            if (!domain) throw new AppError("Domínio não encontrado.", 404);
+        }
         
-        const domain = await this.domainRepository.findById(domain_id);
-        if (!domain) throw new AppError("Domínio não encontrado.", 404);
-
-        const typesOfPublicationRepository = new TypesOfPublicationRepository();
-
-        const typeOfPublication = await typesOfPublicationRepository.findById(type_of_publication_id);
-        if (!typeOfPublication) throw new AppError("Tipo de publicação não encontrado.", 404);
+        if(type_of_publication_id) {
+            const typesOfPublicationRepository = new TypesOfPublicationRepository();
+    
+            const typeOfPublication = await typesOfPublicationRepository.findById(type_of_publication_id);
+            if (!typeOfPublication) throw new AppError("Tipo de publicação não encontrado.", 404);
+        }
 
         const exportPath = path.resolve(__dirname, "..", "database", `export_temp.sql`);
         const zipPath = path.resolve(__dirname, "..", "..", "tmp", `export_${Date.now()}.zip`);
         const uploadPath = path.resolve(__dirname, "..", "..", "tmp", "uploads");
 
-        // Gera o dump SQL
-        const sqlContent = await this._generateSQLDump(domain_id, type_of_publication_id);
-        fs.writeFileSync(exportPath, sqlContent);
+        try {
+            // Gera o dump SQL (pode lançar erro)
+            const sqlContent = await this._generateSQLDump(domain_id, type_of_publication_id);
+            fs.writeFileSync(exportPath, sqlContent);
 
-        // Cria o ZIP corretamente aguardando o fechamento
-        await new Promise(async (resolve, reject) => {
-            const output = fs.createWriteStream(zipPath);
-            const archive = archiver("zip", { zlib: { level: 9 } });
+            // Cria o ZIP
+            await new Promise(async (resolve, reject) => {
+                const output = fs.createWriteStream(zipPath);
+                const archive = archiver("zip", { zlib: { level: 9 } });
 
-            output.on("close", resolve);
-            archive.on("error", reject);
+                output.on("close", resolve);
+                archive.on("error", reject);
 
-            archive.pipe(output);
+                archive.pipe(output);
+                archive.file(exportPath, { name: `database_export.sql` });
 
-            // Adiciona o SQL
-            archive.file(exportPath, { name: `database_export.sql` });
+                let attachmentsQuery = knex('attachments')
+                    .select('attachments.attachment', 'attachments.id', 'attachments.publication_id', 'attachments.domain_id')
+                    .leftJoin('publications', 'attachments.publication_id', 'publications.id');
 
-            let attachmentsQuery = knex('attachments')
-            .select('attachments.attachment', 'attachments.id', 'attachments.publication_id', 'attachments.domain_id')
-            .leftJoin('publications', 'attachments.publication_id', 'publications.id');
+                if (domain_id) attachmentsQuery = attachmentsQuery.where('attachments.domain_id', domain_id);
+                if (type_of_publication_id) attachmentsQuery = attachmentsQuery.where('publications.type_of_publication_id', type_of_publication_id);
 
-            if (domain_id) {
-            attachmentsQuery = attachmentsQuery.where('attachments.domain_id', domain_id);
-            }
+                const attachments = await attachmentsQuery;
 
-            if (type_of_publication_id) {
-            attachmentsQuery = attachmentsQuery.where('publications.type_of_publication_id', type_of_publication_id);
-            }
-
-            const attachments = await attachmentsQuery;
-
-            if (attachments.length > 0) {
-                for (const { attachment } of attachments) {
-                    const filePath = path.join(uploadPath, attachment);
-                    if (fs.existsSync(filePath)) {
-                        archive.file(filePath, { name: `uploads/${attachment}` });
-                    } else {
-                        console.warn(`Arquivo não encontrado: ${attachment}`);
+                if (attachments.length > 0) {
+                    for (const { attachment } of attachments) {
+                        const filePath = path.join(uploadPath, attachment);
+                        if (fs.existsSync(filePath)) {
+                            archive.file(filePath, { name: `uploads/${attachment}` });
+                        } else {
+                            console.warn(`Arquivo não encontrado: ${attachment}`);
+                        }
                     }
+                } else {
+                    console.warn('Nenhum anexo encontrado para os filtros aplicados.');
                 }
-            } else {
-            console.warn('Nenhum anexo encontrado para os filtros aplicados.');
-            }
 
-            await archive.finalize();
-        });
+                await archive.finalize();
+            });
 
-        // Remove o .sql temporário
-        if (fs.existsSync(exportPath)) fs.unlinkSync(exportPath);
+            // Remove o .sql temporário
+            if (fs.existsSync(exportPath)) fs.unlinkSync(exportPath);
 
-        return zipPath;
+            // Pega o tamanho do arquivo final
+            const stats = fs.statSync(zipPath);
+            const fileSize = stats.size;
+
+            // Log de sucesso
+            await backupLogsRepository.createLog({
+            action_type: 'export',
+            trigger_type: 'manual',
+            status: 'success',
+            file_name: path.basename(zipPath),
+            file_size: fileSize,
+            message: 'Exportação concluída com sucesso.'
+            });
+
+            return zipPath;
+
+        } catch (error) {
+            console.error("Erro durante exportação:", error);
+
+            // Log de erro
+            await backupLogsRepository.createLog({
+            action_type: 'export',
+            trigger_type: 'manual',
+            status: 'error',
+            file_name: path.basename(zipPath),
+            file_size: 0,
+            message: `Erro na exportação: ${error.message}`
+            });
+
+            throw new AppError("Falha ao exportar o banco de dados.", 500);
+        }
     }
 
     async _generateSQLDump(domain_id, type_of_publication_id) {
@@ -149,15 +179,23 @@ class DomainsService {
 
         const createTableStatements = async (tableName) => {
             const tableInfo = await knex.raw(`PRAGMA table_info(${tableName})`);
-            const columns = tableInfo.map(column => {
+            if (!tableInfo || tableInfo.length === 0) {
+                console.warn(`⚠️ Tabela ${tableName} não encontrada no banco.`);
+                return `-- Tabela ${tableName} não encontrada.\n`;
+            }
+
+            const columns = tableInfo
+                .map(column => {
                 const name = column.name;
                 const type = column.type;
                 const notnull = column.notnull ? "NOT NULL" : "";
                 const dflt_value = column.dflt_value ? `DEFAULT ${column.dflt_value}` : "";
                 const pk = column.pk ? "PRIMARY KEY" : "";
                 return `${name} ${type} ${notnull} ${dflt_value} ${pk}`.trim();
-            }).join(", ");
-            return `CREATE TABLE ${tableName} (${columns});`;
+                })
+                .join(", ");
+
+            return `CREATE TABLE IF NOT EXISTS ${tableName} (${columns});\n`;
         };
 
         const createInsertStatements = async (tableName, rows) => {
@@ -241,7 +279,7 @@ class DomainsService {
         }
 
         return sqlContent;
-    }
+    };
 }
 
 module.exports = DomainsService;
