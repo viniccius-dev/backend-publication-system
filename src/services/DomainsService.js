@@ -1,6 +1,7 @@
 const AppError = require("../utils/AppError");
 const path = require("path");
 const fs = require("fs");
+const unzipper = require("unzipper");
 const archiver = require("archiver");
 const knex = require("../database/knex");
 
@@ -146,9 +147,9 @@ class DomainsService {
 
             // Log de sucesso
             await backupLogsRepository.createLog({
-            action_type: 'export',
-            trigger_type: 'manual',
-            status: 'success',
+            action_type: 'Exportação',
+            trigger_type: 'Manual',
+            status: 'Sucesso',
             file_name: path.basename(zipPath),
             file_size: fileSize,
             message: 'Exportação concluída com sucesso.'
@@ -161,9 +162,9 @@ class DomainsService {
 
             // Log de erro
             await backupLogsRepository.createLog({
-            action_type: 'export',
-            trigger_type: 'manual',
-            status: 'error',
+            action_type: 'Exportação',
+            trigger_type: 'Manual',
+            status: 'Erro',
             file_name: path.basename(zipPath),
             file_size: 0,
             message: `Erro na exportação: ${error.message}`
@@ -175,7 +176,7 @@ class DomainsService {
 
     async _generateSQLDump(domain_id, type_of_publication_id) {
         // TODO: Adicionar futura tabela de backup_logs
-        const tables = ["users", "attachments", "publications", "types_of_publication", "domains"];
+        const tables = ["types_of_publication", "domains", "users", "publications", "attachments"];
 
         const createTableStatements = async (tableName) => {
             const tableInfo = await knex.raw(`PRAGMA table_info(${tableName})`);
@@ -279,6 +280,126 @@ class DomainsService {
         }
 
         return sqlContent;
+    };
+
+    async importDatabaseFromZip(file) {
+        const backupLogsRepository = new BackupLogsRepository();
+
+        const importDir = path.resolve(__dirname, "..", "..", "tmp", "import_temp");
+        const uploadDir = path.resolve(__dirname, "..", "..", "tmp", "uploads");
+
+        // Garante que o diretório temporário para importação exista
+        if (!fs.existsSync(importDir)) fs.mkdirSync(importDir, { recursive: true });
+
+        try {
+            // Valida o tipo do arquivo
+            if (!file || !file.originalname.endsWith(".zip")) {
+                throw new AppError("Arquivo inválido. Envie um arquivo .zip", 400);
+            }
+
+            const zipPath = file.path;
+
+            // Extrai o conteúdo do zip
+            await fs.createReadStream(zipPath)
+                .pipe(unzipper.Extract({ path: importDir }))
+                .promise();
+
+            const sqlPath = path.join(importDir, "database_export.sql");
+
+            if (!fs.existsSync(sqlPath)) {
+                throw new AppError("Arquivo SQL não encontrado no backup.", 400);
+            }
+
+            // Valida conteúdo do SQL (anti-injeção / anti-drop)
+            const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+            const forbidden = /(drop\s+table|alter\s+table|delete\s+from\s+\w+)/gi;
+            if (forbidden.test(sqlContent)) {
+                throw new AppError("Arquivo SQL contém comandos perigosos.", 400);
+            }
+
+            function safeSplitSQL(sql) {
+                const statements = [];
+                let current = '';
+                let inString = false;
+
+                for (let i = 0; i < sql.length; i++) {
+                    const char = sql[i];
+
+                    if (char === "'") {
+                        // Detecta entrada ou saída de uma string
+                        const nextChar = sql[i + 1];
+                    if (nextChar === "'") {
+                        // Aspas duplas dentro da string ('') → pula o próximo
+                        current += "''";
+                        i++;
+                        continue;
+                    }
+                    inString = !inString;
+                    }
+
+                    if (char === ';' && !inString) {
+                        // Fim de uma instrução SQL válida
+                        statements.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+
+                if (current.trim()) statements.push(current.trim());
+
+                return statements;
+            }
+
+            // Transação segura
+            await knex.transaction(async trx => {
+                const statements = safeSplitSQL(sqlContent);
+
+                for (const statement of statements) {
+                    await trx.raw(statement);
+                }
+
+                // Copia os arquivos de uploads (se houver)
+                const extractedUploads = path.join(importDir, "uploads");
+                    if (fs.existsSync(extractedUploads)) {
+                    const files = fs.readdirSync(extractedUploads);
+                    for (const fileName of files) {
+                        const src = path.join(extractedUploads, fileName);
+                        const dest = path.join(uploadDir, fileName);
+                        fs.copyFileSync(src, dest);
+                    }
+                }
+            });
+
+            // Log de sucesso
+            await backupLogsRepository.createLog({
+                action_type: "Importação",
+                trigger_type: "Manual",
+                status: "Sucesso",
+                file_name: file.originalname,
+                file_size: file.size,
+                message: "Importação concluída com sucesso."
+            });
+
+            return { message: "Importação concluída com sucesso!" };
+        } catch (error) {
+            console.error("Erro durante importação:", error);
+
+            await backupLogsRepository.createLog({
+                action_type: "Importação",
+                trigger_type: "Manual",
+                status: "Erro",
+                file_name: file?.originalname || "Arquivo Desconhecido",
+                file_size: file?.size || 0,
+                message: `Erro na importação: ${error.message}`
+            });
+
+            throw new AppError("Falha ao importar o banco de dados.", 500);
+        } finally {
+            // Limpeza de arquivos temporários
+            if (fs.existsSync(importDir)) fs.rmSync(importDir, { recursive: true, force: true });
+            if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        }
     };
 }
 

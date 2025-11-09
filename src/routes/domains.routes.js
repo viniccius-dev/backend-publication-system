@@ -1,6 +1,9 @@
 const { Router } = require("express");
+const uploadConfig = require("../configs/upload");
+const multer = require("multer");
 
 const domainsRoutes = Router();
+const upload = multer(uploadConfig.MULTER);
 
 const DomainsController = require("../controllers/DomainsController");
 const ensureAuthenticated = require("../middlewares/ensureAuthenticated");
@@ -17,6 +20,7 @@ domainsRoutes.delete("/:domain_id", domainsController.delete);
 domainsRoutes.get("/", domainsController.index);
 
 domainsRoutes.get("/export", domainsController.exportDatabaseAndAttachments);
+domainsRoutes.post("/import", upload.single("file"), domainsController.importDatabaseAndAttachments);
 
 domainsRoutes.get("/:domain_id", domainsController.show);
 

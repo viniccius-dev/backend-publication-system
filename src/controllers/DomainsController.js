@@ -50,9 +50,8 @@ class DomainsController {
         const domain = await domainsService.showDomain(domain_id);
 
         return response.json(domain);
-    }
+    };
 
-    // TODO: Fragmentar para DomainsService e DomainRepository
     async exportDatabaseAndAttachments(request, response) {
         const { domain_id, type_of_publication_id } = request.body;
 
@@ -75,6 +74,20 @@ class DomainsController {
         }
     };
 
+    async importDatabaseAndAttachments(request, response) {
+        const domainRepository = new DomainRepository();
+        const domainsService = new DomainsService(domainRepository);
+
+        try {
+            const result = await domainsService.importDatabaseFromZip(request.file);
+            return response.status(200).json(result);
+        } catch (error) {
+            return response.status(error.statusCode || 500).json({
+                status: "error",
+                message: error.message || "Erro inesperado durante importação."
+            });
+        }
+    }
 };
 
 module.exports = DomainsController;

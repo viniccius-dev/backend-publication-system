@@ -1,13 +1,13 @@
 exports.up = knex => knex.schema.createTable("backup_logs", table => {
     table.increments("id");
     table
-    .enum("action_type", ["export", "import"], { useNative: true, enumName: "action_types" })
+    .enum("action_type", ["Exportação", "Importação"], { useNative: true, enumName: "action_types" })
     .notNullable();
     table
-    .enum("trigger_type", ["manual", "automatic"], { useNative: true, enumName: "trigger_types" })
+    .enum("trigger_type", ["Manual", "Automático"], { useNative: true, enumName: "trigger_types" })
     .notNullable();
     table
-    .enum("status", ["success", "error"], { useNative: true, enumName: "status" })
+    .enum("status", ["Sucesso", "Erro"], { useNative: true, enumName: "status" })
     .notNullable();;
     table.text("file_name");
     table.integer("file_size");
