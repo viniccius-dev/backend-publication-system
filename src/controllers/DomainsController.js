@@ -1,4 +1,8 @@
 const fs = require("fs");
+const path = require("path");
+const unzipper = require("unzipper");
+
+const AppError = require("../utils/AppError");
 
 const DomainRepository = require("../repositories/DomainRepository");
 const DomainsService = require("../services/DomainsService");
@@ -87,7 +91,71 @@ class DomainsController {
                 message: error.message || "Erro inesperado durante importação."
             });
         }
-    }
+    };
+
+    async previewImport(request, response) {
+        const file = request.file;
+        const domainsService = new DomainsService();
+
+        const importDir = path.resolve(__dirname, "..", "..", "tmp", "preview_temp");
+        if (!fs.existsSync(importDir)) fs.mkdirSync(importDir, { recursive: true });
+
+        try {
+            if (!file || !file.originalname.endsWith(".zip")) {
+                throw new AppError("Arquivo inválido. Envie um arquivo .zip", 400);
+            };
+
+            const sqlPath = path.join(importDir, "database_export.sql");
+
+            // Extrai apenas o arquivo database_export.sql do zip
+            await new Promise((resolve, reject) => {
+                const zipStream = fs.createReadStream(file.path)
+                .pipe(unzipper.Parse());
+
+                let found = false;
+
+                zipStream.on("entry", async (entry) => {
+                const fileName = entry.path;
+
+                if (fileName === "database_export.sql") {
+                    found = true;
+                    entry.pipe(fs.createWriteStream(sqlPath))
+                    .on("finish", resolve)
+                    .on("error", reject);
+                } else {
+                    entry.autodrain(); // Ignora os outros arquivos
+                }
+                });
+
+                zipStream.on("close", () => {
+                if (!found) reject(new AppError("Arquivo SQL não encontrado no backup.", 400));
+                });
+
+                zipStream.on("error", reject);
+            });
+
+            // Confirma se o arquivo SQL foi realmente extraído
+            if (!fs.existsSync(sqlPath)) {
+                throw new AppError("Arquivo SQL não encontrado no backup.", 400);
+            }
+
+            // Analisa o conteúdo SQL e gera preview
+            const result = await domainsService.generatePreview(importDir, sqlPath);
+
+            return response.status(200).json({
+                message: "Preview gerado com sucesso",
+                summary: result
+            });
+
+        } catch (error) {
+            console.error("Erro ao gerar preview:", error);
+            throw new AppError("Falha ao gerar preview do backup.", 500);
+        } finally {
+            // Limpeza de arquivos temporários
+            if (fs.existsSync(importDir)) fs.rmSync(importDir, { recursive: true, force: true });
+            if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+        };
+    };
 };
 
 module.exports = DomainsController;

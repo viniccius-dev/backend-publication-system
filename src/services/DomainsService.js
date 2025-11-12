@@ -4,6 +4,7 @@ const fs = require("fs");
 const unzipper = require("unzipper");
 const archiver = require("archiver");
 const knex = require("../database/knex");
+const Database = require("better-sqlite3");
 
 const PublicationRepository = require("../repositories/PublicationRepository");
 const BackupLogsRepository = require("../repositories/BackupLogsRepository");
@@ -401,6 +402,62 @@ class DomainsService {
             if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         }
     };
+
+    async generatePreview(importDir, sqlPath) {
+        const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+
+        // Caminho do banco temporário
+        const dbPath = path.join(importDir, "temp.db");
+
+        // Cria um banco 
+        const db = new Database(dbPath);
+
+        try {
+            db.exec("PRAGMA journal_mode = OFF;");
+            db.exec("PRAGMA synchronous = OFF;");
+
+            // Excecuta o SQL exportado
+            db.exec(sqlContent);
+
+            // --- Buscar domínios e contagem de publicações
+            const domains = db
+                .prepare(`
+                    SELECT d.id, d.domain_name AS name, COUNT(p.id) AS publication_records
+                    FROM domains d
+                    LEFT JOIN publications p ON p.domain_id = d.id
+                    GROUP BY d.id
+                `)
+                .all();
+
+            // --- Buscar tipos e contagem de publicações
+            const types = db
+                .prepare(`
+                SELECT t.id, t.name, COUNT(p.id) AS publication_records
+                FROM types_of_publication t
+                LEFT JOIN publications p ON p.type_of_publication_id = t.id
+                GROUP BY t.id
+                `)
+                .all();
+
+            // --- Outras contagens gerais
+            const totalPublications = db.prepare("SELECT COUNT(*) AS total FROM publications").get().total;
+            const totalUsers = db.prepare("SELECT COUNT(*) AS total FROM users").get().total;
+
+            return {
+                domains,
+                types_of_publication: types,
+                total_publications: totalPublications,
+                users: totalUsers
+            };
+        } catch (error) {
+            console.error("Erro ao gerar preview:", error);
+            throw new Error("Falha ao gerar preview do backup.");
+        } finally {
+            db.close();
+            if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+        }
+    };
+
 }
 
 module.exports = DomainsService;
