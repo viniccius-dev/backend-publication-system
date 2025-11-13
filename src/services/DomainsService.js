@@ -11,8 +11,6 @@ const BackupLogsRepository = require("../repositories/BackupLogsRepository");
 const PublicationsService = require("./PublicationsService");
 
 const TypesOfPublicationRepository = require("../repositories/TypesOfPublicationRepository");
-const TypesOfPublicationsService = require("./TypesOfPublicationService");
-const { type } = require("os");
 
 class DomainsService {
     constructor(domainRepository) {
@@ -77,6 +75,8 @@ class DomainsService {
 
         return domain;
     };
+
+    // Exportação e Importação do banco de dados
 
     async exportDatabaseAndAttachments(filters) {
         const { domain_id, type_of_publication_id } = filters;
@@ -456,6 +456,26 @@ class DomainsService {
             db.close();
             if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         }
+    };
+
+    // Backup automático
+
+    async systemSettingUpdate({ key, value }) {
+        const setting = await this.domainRepository.findSettingByKey({ key });
+
+        if(!setting) {
+            throw new AppError("Variável de configuração não encontrada.", 404);
+        };
+
+        setting.value = value ?? setting.value;
+        
+        const updateAt = new Date();
+        const zonedDate = toZonedTime(updateAt, "UTC");
+        setting.updated_at = format(zonedDate, "yyyy-MM-dd HH:mm:ss", { timeZone: "UTC" });
+
+        const settingUpdated = await this.domainRepository.updateSystemSetting(setting);
+
+        return settingUpdated;
     };
 
 }
