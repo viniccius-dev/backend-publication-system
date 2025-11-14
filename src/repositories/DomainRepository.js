@@ -49,7 +49,7 @@ class DomainRepository {
     };
 
     async findSettingByKey(key) {
-        const setting = await knex("system_settings").where({ key }).first();
+        const setting = await knex("system_settings").where(key).first();
 
         return setting;
     }

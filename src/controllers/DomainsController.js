@@ -156,6 +156,17 @@ class DomainsController {
             if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         };
     };
+
+
+    async updateSystemSettings(request, response) {
+        const { key, value } = request.body;
+
+        const domainRepository = new DomainRepository();
+        const domainsService = new DomainsService(domainRepository);
+        await domainsService.systemSettingUpdate({ key, value });
+
+        return response.json({ message: "Configuração de backup automático atualizado com sucesso." });
+    };
 };
 
 module.exports = DomainsController;

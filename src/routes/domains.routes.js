@@ -14,6 +14,8 @@ const domainsController = new DomainsController();
 domainsRoutes.use(ensureAuthenticated);
 domainsRoutes.use(verifyUserAuthorization());
 
+domainsRoutes.put("/system-settings", domainsController.updateSystemSettings);
+
 domainsRoutes.post("/", domainsController.create);
 domainsRoutes.put("/:domain_id", domainsController.update);
 domainsRoutes.delete("/:domain_id", domainsController.delete);
@@ -23,5 +25,6 @@ domainsRoutes.get("/export", domainsController.exportDatabaseAndAttachments);
 domainsRoutes.post("/import", upload.single("file"), domainsController.importDatabaseAndAttachments);
 domainsRoutes.post("/import/preview", upload.single("file"), domainsController.previewImport)
 domainsRoutes.get("/:domain_id", domainsController.show);
+
 
 module.exports = domainsRoutes;
