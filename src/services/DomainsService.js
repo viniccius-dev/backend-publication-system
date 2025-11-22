@@ -81,7 +81,7 @@ class DomainsService {
     // Exportação e Importação do banco de dados
 
     async exportDatabaseAndAttachments(filters) {
-        const { domain_id, type_of_publication_id } = filters;
+        const { domain_id, type_of_publication_id, triggerType = "Manual" } = filters;
         const backupLogsRepository = new BackupLogsRepository();
 
         if(domain_id) {
@@ -149,14 +149,16 @@ class DomainsService {
             const fileSize = stats.size;
 
             // Log de sucesso
-            await backupLogsRepository.createLog({
-            action_type: 'Exportação',
-            trigger_type: 'Manual',
-            status: 'Sucesso',
-            file_name: path.basename(zipPath),
-            file_size: fileSize,
-            message: 'Exportação concluída com sucesso.'
-            });
+            if (triggerType === "Manual") {
+                await backupLogsRepository.createLog({
+                    action_type: 'Exportação',
+                    trigger_type: 'Manual',
+                    status: 'Sucesso',
+                    file_name: path.basename(zipPath),
+                    file_size: fileSize,
+                    message: 'Exportação concluída com sucesso.'
+                });
+            }
 
             return zipPath;
 
@@ -164,18 +166,20 @@ class DomainsService {
             console.error("Erro durante exportação:", error);
 
             // Log de erro
-            await backupLogsRepository.createLog({
-            action_type: 'Exportação',
-            trigger_type: 'Manual',
-            status: 'Erro',
-            file_name: path.basename(zipPath),
-            file_size: 0,
-            message: `Erro na exportação: ${error.message}`
-            });
+            if (triggerType === "Manual") {
+                await backupLogsRepository.createLog({
+                    action_type: 'Exportação',
+                    trigger_type: 'Manual',
+                    status: 'Erro',
+                    file_name: path.basename(zipPath),
+                    file_size: 0,
+                    message: `Erro na exportação: ${error.message}`
+                });
+            }
 
             throw new AppError("Falha ao exportar o banco de dados.", 500);
         }
-    }
+    };
 
     async _generateSQLDump(domain_id, type_of_publication_id) {
         // TODO: Adicionar futura tabela de backup_logs
