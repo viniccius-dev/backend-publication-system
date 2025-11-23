@@ -463,7 +463,7 @@ class DomainsService {
             if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         }
     };
-
+    
     // Backup automático
 
     async systemSettingUpdate({ key, value }) {

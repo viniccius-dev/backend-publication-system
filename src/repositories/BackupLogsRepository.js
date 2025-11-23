@@ -12,6 +12,10 @@ class BackupLogsRepository {
       message
     });
   }
+
+  async getBackupLogs() {
+    return await knex('backup_logs').orderBy("created_at", "desc");
+  }
 }
 
 module.exports = BackupLogsRepository;

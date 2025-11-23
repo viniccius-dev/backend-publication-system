@@ -5,6 +5,7 @@ const unzipper = require("unzipper");
 const AppError = require("../utils/AppError");
 
 const DomainRepository = require("../repositories/DomainRepository");
+const BackupLogsRepository = require("../repositories/BackupLogsRepository");
 const DomainsService = require("../services/DomainsService");
 
 class DomainsController {
@@ -57,7 +58,7 @@ class DomainsController {
     };
 
     async exportDatabaseAndAttachments(request, response) {
-        const { domain_id, type_of_publication_id } = request.body;
+        const { domain_id, type_of_publication_id } = request.query;
 
         const domainRepository = new DomainRepository();
         const domainsService = new DomainsService(domainRepository);
@@ -156,6 +157,13 @@ class DomainsController {
             if (file && fs.existsSync(file.path)) fs.unlinkSync(file.path);
         };
     };
+
+    async indexLogsBackup(request, response) {
+        const backupLogsRepository = new BackupLogsRepository();
+        const backupLogs = await backupLogsRepository.getBackupLogs();
+
+        return response.json(backupLogs);
+    }
 
 
     async updateSystemSettings(request, response) {

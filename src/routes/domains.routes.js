@@ -19,6 +19,9 @@ domainsRoutes.put("/system-settings", domainsController.updateSystemSettings);
 domainsRoutes.post("/", domainsController.create);
 domainsRoutes.put("/:domain_id", domainsController.update);
 domainsRoutes.delete("/:domain_id", domainsController.delete);
+
+domainsRoutes.get("/backup-logs", domainsController.indexLogsBackup);
+
 domainsRoutes.get("/", domainsController.index);
 
 domainsRoutes.get("/export", domainsController.exportDatabaseAndAttachments);
