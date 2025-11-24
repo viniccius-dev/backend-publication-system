@@ -14,6 +14,8 @@ const PublicationsService = require("./PublicationsService");
 
 const TypesOfPublicationRepository = require("../repositories/TypesOfPublicationRepository");
 
+let exportProgress = 0;
+
 class DomainsService {
     constructor(domainRepository) {
         this.domainRepository = domainRepository;
@@ -84,14 +86,13 @@ class DomainsService {
         const { domain_id, type_of_publication_id, triggerType = "Manual" } = filters;
         const backupLogsRepository = new BackupLogsRepository();
 
-        if(domain_id) {
+        if (domain_id) {
             const domain = await this.domainRepository.findById(domain_id);
             if (!domain) throw new AppError("Domínio não encontrado.", 404);
         }
-        
-        if(type_of_publication_id) {
+
+        if (type_of_publication_id) {
             const typesOfPublicationRepository = new TypesOfPublicationRepository();
-    
             const typeOfPublication = await typesOfPublicationRepository.findById(type_of_publication_id);
             if (!typeOfPublication) throw new AppError("Tipo de publicação não encontrado.", 404);
         }
@@ -101,11 +102,9 @@ class DomainsService {
         const uploadPath = path.resolve(__dirname, "..", "..", "tmp", "uploads");
 
         try {
-            // Gera o dump SQL (pode lançar erro)
             const sqlContent = await this._generateSQLDump(domain_id, type_of_publication_id);
             fs.writeFileSync(exportPath, sqlContent);
 
-            // Cria o ZIP
             await new Promise(async (resolve, reject) => {
                 const output = fs.createWriteStream(zipPath);
                 const archive = archiver("zip", { zlib: { level: 9 } });
@@ -114,15 +113,29 @@ class DomainsService {
                 archive.on("error", reject);
 
                 archive.pipe(output);
-                archive.file(exportPath, { name: `database_export.sql` });
+                archive.file(exportPath, { name: "database_export.sql" });
 
-                let attachmentsQuery = knex('attachments')
-                    .select('attachments.attachment', 'attachments.id', 'attachments.publication_id', 'attachments.domain_id')
-                    .leftJoin('publications', 'attachments.publication_id', 'publications.id');
+                archive.on("progress", data => {
+                    if (data.fs && data.fs.totalBytes > 0) {
+                        const percent = Math.floor(
+                            (data.fs.processedBytes / data.fs.totalBytes) * 100
+                        );
 
-                if (domain_id) attachmentsQuery = attachmentsQuery.where('attachments.domain_id', domain_id);
-                if (type_of_publication_id) attachmentsQuery = attachmentsQuery.where('publications.type_of_publication_id', type_of_publication_id);
+                        exportProgress = Math.min(percent, 99);
+                    }
+                });
 
+                let attachmentsQuery = knex("attachments")
+                    .select(
+                        "attachments.attachment",
+                        "attachments.id",
+                        "attachments.publication_id",
+                        "attachments.domain_id"
+                    )
+                    .leftJoin("publications", "attachments.publication_id", "publications.id");
+
+                if (domain_id) attachmentsQuery = attachmentsQuery.where("attachments.domain_id", domain_id);
+                if (type_of_publication_id) attachmentsQuery = attachmentsQuery.where("publications.type_of_publication_id", type_of_publication_id);
                 const attachments = await attachmentsQuery;
 
                 if (attachments.length > 0) {
@@ -131,46 +144,45 @@ class DomainsService {
                         if (fs.existsSync(filePath)) {
                             archive.file(filePath, { name: `uploads/${attachment}` });
                         } else {
-                            console.warn(`Arquivo não encontrado: ${attachment}`);
+                            console.warn("Arquivo não encontrado:", attachment);
                         }
                     }
-                } else {
-                    console.warn('Nenhum anexo encontrado para os filtros aplicados.');
                 }
 
                 await archive.finalize();
             });
 
-            // Remove o .sql temporário
+            // Remove SQL temporário
             if (fs.existsSync(exportPath)) fs.unlinkSync(exportPath);
 
-            // Pega o tamanho do arquivo final
+            // Stats do arquivo
             const stats = fs.statSync(zipPath);
             const fileSize = stats.size;
 
             // Log de sucesso
             if (triggerType === "Manual") {
                 await backupLogsRepository.createLog({
-                    action_type: 'Exportação',
-                    trigger_type: 'Manual',
-                    status: 'Sucesso',
+                    action_type: "Exportação",
+                    trigger_type: "Manual",
+                    status: "Sucesso",
                     file_name: path.basename(zipPath),
                     file_size: fileSize,
-                    message: 'Exportação concluída com sucesso.'
+                    message: "Exportação concluída com sucesso."
                 });
             }
+
+            exportProgress = 100;
 
             return zipPath;
 
         } catch (error) {
             console.error("Erro durante exportação:", error);
 
-            // Log de erro
             if (triggerType === "Manual") {
                 await backupLogsRepository.createLog({
-                    action_type: 'Exportação',
-                    trigger_type: 'Manual',
-                    status: 'Erro',
+                    action_type: "Exportação",
+                    trigger_type: "Manual",
+                    status: "Erro",
                     file_name: path.basename(zipPath),
                     file_size: 0,
                     message: `Erro na exportação: ${error.message}`
@@ -179,7 +191,7 @@ class DomainsService {
 
             throw new AppError("Falha ao exportar o banco de dados.", 500);
         }
-    };
+    }
 
     async _generateSQLDump(domain_id, type_of_publication_id) {
         // TODO: Adicionar futura tabela de backup_logs
@@ -188,7 +200,7 @@ class DomainsService {
         const createTableStatements = async (tableName) => {
             const tableInfo = await knex.raw(`PRAGMA table_info(${tableName})`);
             if (!tableInfo || tableInfo.length === 0) {
-                console.warn(`⚠️ Tabela ${tableName} não encontrada no banco.`);
+                console.warn(`Tabela ${tableName} não encontrada no banco.`);
                 return `-- Tabela ${tableName} não encontrada.\n`;
             }
 
@@ -463,7 +475,11 @@ class DomainsService {
             if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
         }
     };
-    
+
+    async getExportProgress() {
+        return exportProgress;
+    }
+
     // Backup automático
 
     async systemSettingUpdate({ key, value }) {

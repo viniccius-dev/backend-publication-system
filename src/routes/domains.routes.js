@@ -25,6 +25,7 @@ domainsRoutes.get("/backup-logs", domainsController.indexLogsBackup);
 domainsRoutes.get("/", domainsController.index);
 
 domainsRoutes.get("/export", domainsController.exportDatabaseAndAttachments);
+domainsRoutes.get("/export-progress", domainsController.getExportProgress);
 domainsRoutes.post("/import", upload.single("file"), domainsController.importDatabaseAndAttachments);
 domainsRoutes.post("/import/preview", upload.single("file"), domainsController.previewImport)
 domainsRoutes.get("/:domain_id", domainsController.show);

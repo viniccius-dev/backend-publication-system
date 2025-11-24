@@ -163,8 +163,15 @@ class DomainsController {
         const backupLogs = await backupLogsRepository.getBackupLogs();
 
         return response.json(backupLogs);
-    }
+    };
 
+    async getExportProgress(request, response) {
+        const domainRepository = new DomainRepository();
+        const domainsService = new DomainsService(domainRepository);
+        const exportProgress = await domainsService.getExportProgress();
+
+        response.json({ progress: exportProgress })
+    };
 
     async updateSystemSettings(request, response) {
         const { key, value } = request.body;
