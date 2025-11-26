@@ -14,6 +14,7 @@ const domainsController = new DomainsController();
 domainsRoutes.use(ensureAuthenticated);
 domainsRoutes.use(verifyUserAuthorization());
 
+domainsRoutes.get("/system-setting/:key", domainsController.getSystemSetting);
 domainsRoutes.put("/system-settings", domainsController.updateSystemSettings);
 
 domainsRoutes.post("/", domainsController.create);

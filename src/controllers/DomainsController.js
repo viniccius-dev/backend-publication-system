@@ -182,6 +182,15 @@ class DomainsController {
 
         return response.json({ message: "Configuração de backup automático atualizado com sucesso." });
     };
+
+    async getSystemSetting(request, response) {
+        const { key } = request.params;
+
+        const domainRepository = new DomainRepository();
+        const setting = await domainRepository.findSettingByKey({ key });
+
+        return response.json(setting);
+    };
 };
 
 module.exports = DomainsController;
